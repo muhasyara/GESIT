@@ -1,0 +1,98 @@
+name: Build and Deploy GESIT to GCP
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    name: Build Docker Images (Web & App)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set lowercase repository owner
+        id: prep
+        run: echo "owner=${GITHUB_REPOSITORY_OWNER,,}" >> $GITHUB_OUTPUT
+
+      - name: Login to GitHub Container Registry (GHCR)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push gesit-web (Nginx)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/nginx/Dockerfile
+          push: true
+          tags: ghcr.io/${{ steps.prep.outputs.owner }}/gesit-web:latest
+
+      - name: Build and push gesit-app (PHP-FPM)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/php/Dockerfile
+          push: true
+          tags: ghcr.io/${{ steps.prep.outputs.owner }}/gesit-app:latest
+
+  deploy-to-gcp:
+    name: Deploy Containers to Compute Engine
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Copy docker-compose.yml and SQL schema to VM
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USERNAME }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          source: "docker-compose.yml,database/db_inventaris.sql"
+          target: "~/gesit"
+
+      - name: Pull images and restart services on VM
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          OWNER_LOWER: ${{ github.repository_owner }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+          DB_DATABASE: ${{ secrets.DB_DATABASE }}
+          DB_USERNAME: ${{ secrets.DB_USERNAME }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_ROOT_PASSWORD: ${{ secrets.DB_ROOT_PASSWORD }}
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USERNAME }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          envs: OWNER_LOWER,GHCR_TOKEN,GHCR_USER,DB_DATABASE,DB_USERNAME,DB_PASSWORD,DB_ROOT_PASSWORD
+          script: |
+            cd ~/gesit
+            OWNER_CLEAN=$(echo "$OWNER_LOWER" | tr '[:upper:]' '[:lower:]')
+
+            cat <<EOF > .env
+            GITHUB_REPOSITORY_OWNER=${OWNER_CLEAN}
+            APP_ENV=production
+            APP_PORT=80
+            DB_HOST=db
+            DB_PORT=3306
+            DB_DATABASE=${DB_DATABASE}
+            DB_USERNAME=${DB_USERNAME}
+            DB_PASSWORD=${DB_PASSWORD}
+            DB_ROOT_PASSWORD=${DB_ROOT_PASSWORD}
+            EOF
+
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+            docker compose pull
+            docker compose up -d --remove-orphans
+            docker image prune -f
