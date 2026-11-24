@@ -1,10 +1,24 @@
 services:
+  proxy:
+    image: caddy:2-alpine
+    container_name: gesit-proxy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    command: caddy reverse-proxy --from ${DOMAIN_NAME} --to web:80
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+    networks:
+      - gesit-net
+
   web:
     image: ghcr.io/${GITHUB_REPOSITORY_OWNER}/gesit-web:latest
     container_name: gesit-web
     restart: unless-stopped
-    ports:
-      - "${APP_PORT:-80}:80"
     depends_on:
       - app
     networks:
@@ -38,7 +52,7 @@ services:
       - db_data:/var/lib/mysql
       - ./database/db_inventaris.sql:/docker-entrypoint-initdb.d/db_inventaris.sql
     healthcheck:
-      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      test: [ "CMD", "healthcheck.sh", "--connect", "--innodb_initialized" ]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -47,6 +61,8 @@ services:
 
 volumes:
   db_data:
+  caddy_data:
+  caddy_config:
 
 networks:
   gesit-net:

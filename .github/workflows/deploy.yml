@@ -67,6 +67,7 @@ jobs:
           OWNER_LOWER: ${{ github.repository_owner }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GHCR_USER: ${{ github.actor }}
+          DOMAIN_NAME: ${{ secrets.DOMAIN_NAME }}
           DB_DATABASE: ${{ secrets.DB_DATABASE }}
           DB_USERNAME: ${{ secrets.DB_USERNAME }}
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
@@ -75,15 +76,15 @@ jobs:
           host: ${{ secrets.VM_HOST }}
           username: ${{ secrets.VM_USERNAME }}
           key: ${{ secrets.VM_SSH_KEY }}
-          envs: OWNER_LOWER,GHCR_TOKEN,GHCR_USER,DB_DATABASE,DB_USERNAME,DB_PASSWORD,DB_ROOT_PASSWORD
+          envs: OWNER_LOWER,GHCR_TOKEN,GHCR_USER,DOMAIN_NAME,DB_DATABASE,DB_USERNAME,DB_PASSWORD,DB_ROOT_PASSWORD
           script: |
             cd ~/gesit
             OWNER_CLEAN=$(echo "$OWNER_LOWER" | tr '[:upper:]' '[:lower:]')
 
             cat <<EOF > .env
             GITHUB_REPOSITORY_OWNER=${OWNER_CLEAN}
+            DOMAIN_NAME=${DOMAIN_NAME}
             APP_ENV=production
-            APP_PORT=80
             DB_HOST=db
             DB_PORT=3306
             DB_DATABASE=${DB_DATABASE}
